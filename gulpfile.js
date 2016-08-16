@@ -16,23 +16,31 @@ gulp.task('js', function () {
     var babelify = require('babelify');
     var source = require('vinyl-source-stream');
     var buffer = require('vinyl-buffer');
+    var _ = require('underscore');
 
-    var bundle = browserify({
-        entries: 'src/GlslCanvas.js',
-        standalone: 'GlslCanvas',
-        debug: true,
-        transform: [
-            babelify.configure({ optional: ['runtime'] }),
-            shim
-        ]
-    });
 
-    return bundle.bundle()
-        .pipe(plumber())
-        .pipe(source('GlslCanvas.js'))
-        .pipe(derequire())
-        .pipe(buffer())
-        .pipe(gulp.dest('./build'));
+    var bundleThis = function(srcArray) {
+      _.each(srcArray, function(src) {
+            var bundle = browserify({
+                entries: 'src/'+src+'.js',
+                standalone: src,
+                debug: true,
+                transform: [
+                    babelify.configure({ optional: ['runtime'] }),
+                    shim
+                ]
+            });
+
+            return bundle.bundle()
+                .pipe(plumber())
+                .pipe(source(src+'.js'))
+                .pipe(derequire())
+                .pipe(buffer())
+                .pipe(gulp.dest('./build'));
+      });
+    };
+
+    bundleThis(["GlslCanvas", "GlslWebVRCanvas"]);
 });
 
 // Rerun the task when a file changes

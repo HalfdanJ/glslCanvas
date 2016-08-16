@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <meta charset="utf-8">
+        <title>GlslWebVRCanvas</title>
+
+        <script type="text/javascript" src="build/GlslWebVRCanvas.js"></script>
+        <script type="text/javascript" src="https://cdn.rawgit.com/github/fetch/master/fetch.js"></script>
+
+        <style>
+            body {
+                background: #101515;
+            }
+
+            #glslCanvas {
+                position: absolute;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%,-50%);
+            }​
+
+            .blank {
+
+            }
+
+            #credits {
+                position: absolute;
+                bottom: 10px;
+                right: 15px;
+                text-align: right;
+                background: rgba(0,0,0,.5);
+                padding: 12px;
+                padding-top: 5px;
+                padding-bottom: 5px;
+                margin: 0px
+            }
+
+            .label {
+                color: white;
+                font-family: Helvetica, Arial, sans-serif;
+                text-decoration: none;
+                line-height: 0.0;
+            }
+
+            #title {
+                font-size: 24px;
+                font-weight: 600;
+            }
+
+            #author {
+                font-size: 14px;
+                font-style: italic;
+                font-weight: 100;
+            }
+        </style>
+
+    </head>
+    <body>
+        <canvas id="glslCanvas" data-fragment="
+// Created by inigo quilez - iq/2014
+// License Creative Commons Attribution-NonCommercial-ShareAlike 3.0 Unported License.
+
+// An edge antialising experiment (not multisampling used)
+//
+// If slow_antialias is disabled, then only the 4 closest hit points are used for antialising,
+// otherwise all found partial-intersections are considered.
+
+#ifdef GL_ES
+precision mediump float;
+#endif
+
+//#define ANTIALIASING
+
+uniform vec2 u_resolution;
+uniform float u_time;
+
+
+vec2 sincos( float x ) { return vec2( sin(x), cos(x) ); }
+
+vec2 sdSegment( in vec3 p, in vec3 a, in vec3 b )
+{
+    vec3 pa = p-a, ba = b-a;
+	float h = clamp( dot(pa,ba)/dot(ba,ba), 0.0, 1.0 );
+	return vec2( length( pa-ba*h ), h );
+}
+
+vec3 opU( vec3 d1, vec3 d2 ) { return (d1.x<d2.x) ? d1 : d2; }
+
+vec3 map( vec3 p )
+{
+    vec2 id = floor( (p.xz+1.0)/2.0);
+    p.xz = mod( p.xz+1.0, 2.0 ) - 1.0;
+
+    float ph = sin(0.5 + 3.1*id.x + sin(7.1*id.y));
+
+    p.xz += 0.5*sincos(1.0+0.5*u_time+(p.y+11.0*ph)*0.8);
+
+    vec3 p1 = p; p1.xz += 0.15*sincos(1.0*p.y-1.0*u_time+0.0);
+    vec3 p2 = p; p2.xz += 0.15*sincos(1.0*p.y-1.0*u_time+2.0);
+    vec3 p3 = p; p3.xz += 0.15*sincos(1.0*p.y-1.0*u_time+4.0);
+
+    vec2 h1 = sdSegment(p1, vec3(0.0,-50.0, 0.0), vec3(0.0, 50.0, 0.0) );
+    vec2 h2 = sdSegment(p2, vec3(0.0,-50.0, 0.0), vec3(0.0, 50.0, 0.0) );
+    vec2 h3 = sdSegment(p3, vec3(0.0,-50.0, 0.0), vec3(0.0, 50.0, 0.0) );
+
+    return opU( opU( vec3(h1.x-0.12,                                         ph + 0.0/3.0, h1.y),
+                     vec3(h2.x-0.12-0.05*cos( 500.0*h2.y - u_time*4.0), ph + 1.0/3.0, h2.y) ),
+                     vec3(h3.x-0.12-0.02*cos(2000.0*h3.y - u_time*4.0), ph + 2.0/3.0, h3.y) );
+}
+
+//-------------------------------------------------------
+
+vec3 calcNormal( in vec3 pos, in float dt )
+{
+    vec2 e = vec2(1.0,-1.0)*dt;
+    return normalize( e.xyy*map( pos + e.xyy ).x +
+					  e.yyx*map( pos + e.yyx ).x +
+					  e.yxy*map( pos + e.yxy ).x +
+					  e.xxx*map( pos + e.xxx ).x );
+}
+
+float calcOcc( in vec3 pos, in vec3 nor )
+{
+    const float h = 0.15;
+	float ao = 0.0;
+    for( int i=0; i<8; i++ )
+    {
+        vec3 dir = sin( float(i)*vec3(1.0,7.13,13.71)+vec3(0.0,2.0,4.0) );
+        dir = dir + 2.5*nor*max(0.0,-dot(nor,dir));
+        float d = map( pos + h*dir ).x;
+        ao += max(0.0,h-d);
+    }
+    return clamp( 1.0 - 0.7*ao, 0.0, 1.0 );
+}
+
+//-------------------------------------------------------
+vec3 shade( in float t, in float m, in float v, in vec3 ro, in vec3 rd )
+{
+    float px = 0.0001;//(2.0/u_esolution.y)*(1.0/3.0);
+    float eps = px*t;
+
+    vec3  pos = ro + t*rd;
+    vec3  nor = calcNormal( pos, eps );
+    float occ = calcOcc( pos, nor );
+
+    vec3 col = 0.5 + 0.5*cos( m*vec3(1.4,1.2,1.0) + vec3(0.0,1.0,2.0) );
+    col += 0.05*nor;
+    col = clamp( col, 0.0, 1.0 );
+    col *= 1.0 + 0.5*nor.x;
+    col += 0.2*clamp(1.0+dot(rd,nor),0.0,1.0);
+    col *= 1.4;
+    col *= occ;
+    col *= exp( -0.15*t );
+    col *= 1.0 - smoothstep( 15.0, 35.0, t );
+
+    return col;
+}
+
+//-------------------------------------------------------
+
+vec3 render( in vec3 ro, in vec3 rd )
+{
+
+	vec3 ta = 0.5*vec3(0.0, 4.0,-4.0);
+
+    float fl = 1.0;
+
+    float px = (2.0/u_resolution.y)*(1.0/fl);
+
+    vec3 col = vec3(0.0);
+
+    //---------------------------------------------
+    // raymach loop
+    //---------------------------------------------
+    const float maxdist = 32.0;
+
+    vec3 res = vec3(-1.0);
+    float t = 0.0;
+
+    vec3 oh = vec3(0.0);
+    mat4 hit = mat4(-1.0,-1.0,-1.0,-1.0,-1.0,-1.0,-1.0,-1.0,-1.0,-1.0,-1.0,-1.0,-1.0,-1.0,-1.0,-1.0);
+
+
+    for( int i=0; i<128; i++ )
+    {
+	    vec3 h = map( ro + t*rd );
+        float th1 = px*t;
+        res = vec3( t, h.yz );
+        if( h.x<th1 || t>maxdist ) break;
+
+
+        #ifdef ANTIALIASING
+
+        float th2 = px*t*3.0;
+        if( (h.x<th2) && (h.x>oh.x) )
+        {
+            float lalp = 1.0 - (h.x-th1)/(th2-th1);
+
+             if( hit[0].x<0.0 )
+             {
+             hit[0] = hit[1]; hit[1] = hit[2]; hit[2] = hit[3]; hit[3] = vec4( t, oh.yz, lalp );
+             }
+
+        }
+        oh = h;
+        #endif
+
+
+        t += min( h.x, 0.5 )*0.5;
+    }
+
+    if( t < maxdist )
+        col = shade( res.x, res.y, res.z, ro, rd );
+
+    for( int i=0; i<4; i++ ) // blend back to front
+    if( hit[3-i].x>0.0 )
+        col = mix( col, shade( hit[3-i].x, hit[3-i].y, hit[3-i].z, ro, rd ), hit[3-i].w );
+
+
+    //---------------------------------------------
+
+    return pow( col, vec3(0.5,0.7,0.5) );
+}
+
+void main(  )
+{
+	vec2 p = (-u_resolution.xy+2.0*gl_FragCoord.xy)/u_resolution.y;
+
+	vec3 ro = 0.6*vec3(2.0,-3.0, 4.0);
+	vec3 ta = 0.5*vec3(0.0, 4.0,-4.0);
+
+    float fl = 1.0;
+    vec3 ww = normalize( ta - ro);
+    vec3 uu = normalize( cross( vec3(1.0,0.0,0.0), ww ) );
+    vec3 vv = normalize( cross(ww,uu) );
+    vec3 rd = normalize( p.x*uu + p.y*vv + fl*ww );
+
+    vec3 col = render(ro, rd);
+
+    vec2 q = gl_FragCoord.xy/u_resolution.xy;
+    col *= pow(16.0*q.x*q.y*(1.0-q.x)*(1.0-q.y),0.1);
+
+	gl_FragColor = vec4( col, 1.0 );
+}
+
+void mainVR(in vec3 fragRayOri, in vec3 fragRayDir )
+{
+    vec3 ro = fragRayOri + 0.6*vec3(2.0,-3.0, 4.0);
+    vec3 col = render(ro, fragRayDir);
+
+    //vec2 q = gl_FragCoord.xy/u_resolution.xy;
+    //col *= pow(16.0*q.x*q.y*(1.0-q.x)*(1.0-q.y),0.1);
+
+	gl_FragColor = vec4( col, 1.0 );
+
+}
+" width="800" height="600"></canvas>
+        <div id="credits">
+            <p class="label" id="title"></p>
+            <p class="label" id="author"></p>
+        </div>
+    </body>
+
+    <script>
+        var canvas = document.getElementById("glslCanvas");
+        var sandbox = new GlslWebVRCanvas(canvas);
+        var texCounter = 0;
+        var sandbox_content = "";
+        var sandbox_title = "";
+        var sandbox_author = "";
+        var sandbox_thumbnail = "";
+        canvas.style.width = '100%';
+        canvas.style.height = '100%';
+
+        function parseQuery (qstr) {
+            var query = {};
+            var a = qstr.split('&');
+            for (var i in a) {
+                var b = a[i].split('=');
+                query[decodeURIComponent(b[0])] = decodeURIComponent(b[1]);
+            }
+            return query;
+        }
+
+        function load(url) {
+            // Make the request and wait for the reply
+            fetch(url)
+                .then(function (response) {
+                    // If we get a positive response...
+                    if (response.status !== 200) {
+                        console.log('Error getting shader. Status code: ' + response.status);
+                        return;
+                    }
+                    // console.log(response);
+                    return response.text();
+                })
+                .then(function(content) {
+                    sandbox_content = content;
+                    sandbox.load(content);
+
+                    var title = addTitle();
+                    var author = addAuthor();
+                    if ( title === "unknown" && author === "unknown") {
+                        document.getElementById("credits").style.visibility = "hidden";
+                    } else {
+                        document.getElementById("credits").style.visibility = "visible";
+                    }
+
+                    addMeta({
+                                'title' : title + ' by ' + author,
+                                'type' : 'website',
+                                'url': window.location.href,
+                                'image': sandbox_thumbnail
+                            })
+                })
+        }
+
+        function addTitle() {
+            var result = sandbox_content.match(/\/\/\s*[T|t]itle\s*:\s*([\w|\s|\@|\(|\)|\-|\_]*)/i);
+            if (result && !(result[1] === ' ' || result[1] === '')) {
+                sandbox_title = result[1].replace(/(\r\n|\n|\r)/gm, '');
+                var title_el = document.getElementById("title").innerHTML = sandbox_title;
+                return sandbox_title;
+            }
+            else {
+                return "unknown";
+            }
+        }
+
+        function addAuthor() {
+            var result = sandbox_content.match(/\/\/\s*[A|a]uthor\s*[\:]?\s*([\w|\s|\@|\(|\)|\-|\_]*)/i);
+            if (result && !(result[1] === ' ' || result[1] === '')) {
+                sandbox_author = result[1].replace(/(\r\n|\n|\r)/gm, '');
+                document.getElementById("author").innerHTML = sandbox_author;
+                return sandbox_author;
+            }
+            else {
+                return "unknown";
+            }
+        }
+
+        function addMeta(obj) {
+            for (var key in obj) {
+                var meta = document.createElement('meta');
+                meta.setAttribute('og:'+key, obj[key]);
+                document.getElementsByTagName('head')[0].appendChild(meta);
+            }
+        }
+
+        var query = parseQuery(window.location.search.slice(1));
+        if (query && query.log) {
+            sandbox_thumbnail = 'https://thebookofshaders.com/log/' + query.log + '.png';
+            load('https://thebookofshaders.com/log/' + query.log + '.frag');
+        }
+
+        if (window.location.hash !== '') {
+            var hashes = location.hash.split('&');
+            for (var i in hashes) {
+                var ext = hashes[i].substr(hashes[i].lastIndexOf('.') + 1);
+                var path = hashes[i];
+
+                // Extract hash if is present
+                if (path.search('#') === 0) {
+                    path = path.substr(1);
+                }
+
+                if (ext === 'frag') {
+                    load(path);
+                }
+                else if (ext === 'png' || ext === 'jpg' || ext === 'PNG' || ext === 'JPG') {
+                    sandbox.setUniform("u_tex"+texCounter.toString(), path);
+                    texCounter++;
+                }
+            }
+        }
+
+        // if (texCounter === 0) {
+        //     sandbox.setUniform("u_tex0","data/moon.jpg");
+        //     sandbox.setUniform("u_logo","data/logo.jpg");
+        // }
+    </script>
+</html>

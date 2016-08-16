@@ -159,7 +159,9 @@ void main(){
 
         // Start
         this.setMouse({ x: 0, y: 0 });
-        RenderLoop();
+        if(!options.manualRenderLoop){
+            RenderLoop();
+        }
         return this;
     }
 
@@ -204,7 +206,7 @@ void main(){
                 let match = lines[i].match(/uniform\s*sampler2D\s*([\w]*);\s*\/\/\s*([\w|\:\/\/|\.|\-|\_]*)/i);
                 if (match) {
                     let ext = match[2].split('.').pop();
-                    if (match[1] &&  match[2] && 
+                    if (match[1] &&  match[2] &&
                         (ext === 'jpg' || ext === 'JPG' ||
                          ext === 'jpeg' || ext === 'JPEG' ||
                          ext === 'png' || ext === 'PNG')) {
@@ -280,7 +282,7 @@ void main(){
                 this.forceRender = true;
             });
         }
-        
+
     }
 
     refreshUniforms() {
